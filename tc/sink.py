@@ -8,26 +8,34 @@ import os
 import subprocess
 import sys
 
-def make_bridge(destination):
+def make_output_bridge(destination, mode='w'):
     """Create a bridge, returning the write file for the bridge."""
-    result = None
+    binary = 'b' in mode
     pipe_descriptors = os.pipe()
-    dest_fh = open(destination, 'w')
-    pid = os.fork()
-    if pid == 0:
+    dest_fh = open(destination, mode=mode)
+    pid = os.fork()  # raises OSError if fork() fails
+    if pid == 0:  # child process
         os.close(pipe_descriptors[1])
-        child_life(os.fdopen(pipe_descriptors[0], 'r'), dest_fh)
-    else:
+        rmode = 'r' + ('b' if binary else '')
+        child_output(os.fdopen(pipe_descriptors[0], mode=rmode), dest_fh, binary)
+    else:  # parent process
         dest_fh.close()
         os.close(pipe_descriptors[0])
-        return os.fdopen(pipe_descriptors[1], 'w')
+        return os.fdopen(pipe_descriptors[1], mode=mode)
 
-def child_life(source_fh, dest_fh):
+def child_output(source_fh, dest_fh, binary):
     """The lifecycle of the child process."""
     with source_fh, dest_fh:
-        for line in source_fh:
-            dest_fh.write(line)
-            dest_fh.flush()
+        if binary:
+            BUFSIZ = 1
+            buf = source_fh.read(BUFSIZ)
+            while buf:
+                dest_fh.write(buf)
+                buf = source_fh.read(BUFSIZ)
+        else:
+            for line in source_fh:
+                dest_fh.write(line)
+                dest_fh.flush()
     os._exit(0)
 
 def main(argv):
@@ -39,6 +47,9 @@ def main(argv):
     parser.add_argument("-o","--output", required=True, default=None,
                         dest='output', 
                         help="output filename.")
+    parser.add_argument("-b","--binary",
+                        dest='binary', action="store_true",
+                        help="open the bridge as a binary file.")
     parser.add_argument("-v","--verbose",
                         dest='verbose', action="store_true",
                         help="run verbosely")
@@ -47,7 +58,7 @@ def main(argv):
                         help="command to execute")
     args = parser.parse_args(args=argv[1:])  # will exit on parse error
 
-    with make_bridge(args.output) as bridge:
+    with make_output_bridge(args.output, mode=('w' + ('b' if args.binary else ''))) as bridge:
         completion = subprocess.run(args.command, stdout=bridge)
 
     return completion.returncode
