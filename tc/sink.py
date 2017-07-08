@@ -16,16 +16,16 @@ def make_bridge(destination):
     pid = os.fork()
     if pid == 0:
         os.close(pipe_descriptors[1])
-        child_life(pipe_descriptors[0], dest_fh)
+        child_life(os.fdopen(pipe_descriptors[0], 'r'), dest_fh)
     else:
         dest_fh.close()
         os.close(pipe_descriptors[0])
         return os.fdopen(pipe_descriptors[1], 'w')
 
-def child_life(fd_in, dest_fh):
+def child_life(source_fh, dest_fh):
     """The lifecycle of the child process."""
-    with dest_fh, os.fdopen(fd_in, 'r') as in_stream:
-        for line in in_stream:
+    with source_fh, dest_fh:
+        for line in source_fh:
             dest_fh.write(line)
             dest_fh.flush()
     os._exit(0)
