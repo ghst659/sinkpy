@@ -18,10 +18,12 @@ def make_output_bridge(destination, mode='w'):
         os.close(pipe_descriptors[1])
         rmode = 'r' + ('b' if binary else '')
         child_output(os.fdopen(pipe_descriptors[0], mode=rmode), dest_fh, binary)
-    else:  # parent process
+    elif pid > 0:  # parent process
         dest_fh.close()
         os.close(pipe_descriptors[0])
         return os.fdopen(pipe_descriptors[1], mode=mode)
+    else:
+        raise OSError('failed fork')
 
 def child_output(source_fh, dest_fh, binary):
     """The lifecycle of the child process."""

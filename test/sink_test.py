@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
+import os
 import unittest
-import tc.braces
+import sys
+import tempfile
+import time
+import tc.sink
 
-class TestBraces(unittest.TestCase):
-    def setUp(self):
-        self.s = tc.braces.BraceParser()
-    def tearDown(self):
-        del self.s
-    def test_00(self):
-        cases = [
-            ("", [""])
-            ,("abc", ["abc"])
-            ,("a,c", ["a,c"])
-            ,("{xy}", ["xy"])
-            ,("{x,y}", ["x","y"])
-            ,("{x,y}v{p,q}", ["xvp", "xvq", "yvp", "yvq"])
-            ,("x{y,z}", ["xy", "xz"])
-            ,("p{q{r,s},t}", ["pqr","pqs", "pt"])
-            ,("{{r,s}{v,w},t}a", ["rva","rwa","sva","swa","ta"])
-            ,("j" * 1024, ["j" * 1024])
-            ,("x{" + "y"*1024 + "}", [ "x" + "y" * 1024 ])
-        ]
-        for patstring, eolist in cases:
-            with self.subTest(pat=patstring) as t:
-                aolist = self.s.expand(patstring)
-                # print(patstring,"->",aolist)
-                # self.assertEqual(sorted(aolist), sorted(eolist), "same output strings")
-                self.assertEqual(aolist, eolist, "same output strings")
+class TestSink(unittest.TestCase):
+    def test_make_output_bridge_text(self):
+        TEXT = 'April is the cruellest month'
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            destination = os.path.join(tmp_dir, "gfile.txt")
+            print(destination, file=sys.stderr)
+            with tc.sink.make_output_bridge(destination, 'w') as ofh:
+                ofh.write(TEXT)
+            time.sleep(0.25)       # race condition with the child process
+            with open(destination, 'r') as ifh:
+                content = ifh.read()
+            self.assertEqual(content, TEXT)
+
+    def test_make_output_bridge_binary(self):
+        DATA = (25559837).to_bytes(64, sys.byteorder)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            destination = os.path.join(tmp_dir, "gfile.dat")
+            print(destination, file=sys.stderr)
+            with tc.sink.make_output_bridge(destination, 'wb') as ofh:
+                ofh.write(DATA)
+            time.sleep(0.25)       # race condition with the child process
+            with open(destination, 'rb') as ifh:
+                content = ifh.read()
+            self.assertEqual(content, DATA)
 
 ##############################################################################
 if __name__ == '__main__':
