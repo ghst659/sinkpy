@@ -6,6 +6,28 @@ import tempfile
 import time
 import tc.sink
 
+class TestAppender(unittest.TestCase):
+    def test_ForeignFileAppender_text(self):
+        TEXT = 'April is the cruellest month'
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            destination = os.path.join(tmp_dir, "gfile.txt")
+            with tc.sink.ForeignFileAppender(destination) as bridge:
+                bridge.file().write(TEXT)
+            with open(destination, 'r') as ifh:
+                content = ifh.read()
+            self.assertEqual(content, TEXT)
+        
+    def test_ForeignFileAppender_binary(self):
+        DATA = (25559837).to_bytes(64, sys.byteorder)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            destination = os.path.join(tmp_dir, "gfile.dat")
+            with tc.sink.ForeignFileAppender(destination, True) as bridge:
+                bridge.file().write(DATA)
+            with open(destination, 'rb') as ifh:
+                content = ifh.read()
+            self.assertEqual(content, DATA)
+
+
 class TestSink(unittest.TestCase):
     def test_make_output_bridge_text(self):
         TEXT = 'April is the cruellest month'
