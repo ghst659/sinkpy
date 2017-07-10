@@ -7,6 +7,80 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
+
+class ForeignFileAppender:
+    """A context manager to pump data from a file into a foreign filesystem."""
+
+    def __init__(self, foreign_path, binary_mode=False, buffer_size=-1, single_write=False):
+        """Initialises the appender."""
+        self._path = foreign_path
+        self._bmode = 'b' if binary_mode else 't'
+        self._bufsiz = buffer_size
+        self._single = single_write
+        self._thread = None
+        self._input = None
+        if binary_mode:
+            if single_write:
+                self._pump = self._pump_binary_single
+            else:
+                self._pump = self._pump_binary_iter
+        else:
+            if single_write:
+                self._pump = self._pump_text_single
+            else:
+                self._pump = self._pump_text_iter
+        
+    def __enter__(self):
+        read_mode = 'r' + self._bmode
+        write_mode = 'w' + self._bmode
+        append_mode = 'a' + self._bmode
+        foreign_handle = open(self._path, append_mode)
+        pipe_ends = os.pipe()
+        input_handle = os.fdopen(pipe_ends[0], read_mode)
+        self._input = os.fdopen(pipe_ends[1], write_mode)
+        self._thread = threading.Thread(target=self._pump, args=(input_handle, foreign_handle))
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._input.close()
+        self._thread.join()
+        self._input = None
+        self._thread = None
+
+    def _pump_binary_single(self, input_source, output_sink):
+        with input_source, output_sink:
+            buffers = []
+            buffer = input_source.read(self._bufsiz)
+            while buffer:
+                buffers.append(buffer)
+                buffer = input_source.read(self._bufsiz)
+            output_sink.write(b''.join(buffers))
+
+    def _pump_binary_iter(self, input_source, output_sink):
+        with input_source, output_sink:
+            buffer = input_source.read(self._bufsiz)
+            while buffer:
+                output_sink.write(buffer)
+                buffer = input_source.read(self._bufsiz)
+
+    def _pump_text_single(self, input_source, output_sink):
+        with input_source, output_sink:
+            buffers = []
+            for line in input_source:
+                buffers.append(line)
+            output_sink.write(''.join(buffers))
+            output_sink.flush()
+
+    def _pump_text_iter(self, input_source, output_sink):
+        with input_source, output_sink:
+            for line in input_source:
+                output_sink.write(line)
+                output_sink.flush()
+
+    def file(self):
+        return self._input
 
 def make_output_bridge(destination, mode='w'):
     """Create a bridge, returning the write file for the bridge."""
@@ -60,8 +134,11 @@ def main(argv):
                         help="command to execute")
     args = parser.parse_args(args=argv[1:])  # will exit on parse error
 
-    with make_output_bridge(args.output, mode=('w' + ('b' if args.binary else ''))) as bridge:
-        completion = subprocess.run(args.command, stdout=bridge)
+    # with make_output_bridge(args.output, mode=('w' + ('b' if args.binary else ''))) as bridge:
+    #     completion = subprocess.run(args.command, stdout=bridge)
+
+    with ForeignFileAppender(args.output, args.binary) as bridge:
+        completion = subprocess.run(args.command, stdout=bridge.file())
 
     return completion.returncode
 
