@@ -12,7 +12,7 @@ import threading
 class ForeignFileAppender:
     """A context manager to pump data from a file into a foreign filesystem."""
 
-    def __init__(self, foreign_path, binary_mode=False, buffer_size=-1, single_write=False):
+    def __init__(self, foreign_path, binary_mode=True, buffer_size=-1, single_write=False):
         """Initialises the appender."""
         self._path = foreign_path
         self._bmode = 'b' if binary_mode else 't'

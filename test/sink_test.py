@@ -11,7 +11,7 @@ class TestAppender(unittest.TestCase):
         TEXT = 'April is the cruellest month'
         with tempfile.TemporaryDirectory() as tmp_dir:
             destination = os.path.join(tmp_dir, "gfile.txt")
-            with tc.sink.ForeignFileAppender(destination) as bridge:
+            with tc.sink.ForeignFileAppender(destination, False) as bridge:
                 bridge.file().write(TEXT)
             with open(destination, 'r') as ifh:
                 content = ifh.read()
