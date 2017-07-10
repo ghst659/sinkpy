@@ -9,44 +9,46 @@ import subprocess
 import sys
 import threading
 
+##############################################################################
+# thread-based
+
 class ForeignFileAppender:
     """A context manager to pump data from a file into a foreign filesystem."""
 
-    def __init__(self, foreign_path, binary_mode=True, buffer_size=-1, single_write=False):
-        """Initialises the appender."""
+    def __init__(self, foreign_path, text_mode=False, buffer_size=-1, single_write=False):
         self._path = foreign_path
-        self._bmode = 'b' if binary_mode else 't'
+        self._mode = 't' if text_mode else 'b'
         self._bufsiz = buffer_size
         self._single = single_write
         self._thread = None
-        self._input = None
-        if binary_mode:
-            if single_write:
-                self._pump = self._pump_binary_single
-            else:
-                self._pump = self._pump_binary_iter
-        else:
+        self.intake = None      # public property
+        if text_mode:
             if single_write:
                 self._pump = self._pump_text_single
             else:
                 self._pump = self._pump_text_iter
+        else:
+            if single_write:
+                self._pump = self._pump_binary_single
+            else:
+                self._pump = self._pump_binary_iter
         
     def __enter__(self):
-        read_mode = 'r' + self._bmode
-        write_mode = 'w' + self._bmode
-        append_mode = 'a' + self._bmode
+        read_mode = 'r' + self._mode
+        write_mode = 'w' + self._mode
+        append_mode = 'a' + self._mode
         foreign_handle = open(self._path, append_mode)
         pipe_ends = os.pipe()
         input_handle = os.fdopen(pipe_ends[0], read_mode)
-        self._input = os.fdopen(pipe_ends[1], write_mode)
+        self.intake = os.fdopen(pipe_ends[1], write_mode)
         self._thread = threading.Thread(target=self._pump, args=(input_handle, foreign_handle))
         self._thread.start()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self._input.close()
+        self.intake.close()     # terminates self._thread
         self._thread.join()
-        self._input = None
+        self.intake = None
         self._thread = None
 
     def _pump_binary_single(self, input_source, output_sink):
@@ -79,8 +81,8 @@ class ForeignFileAppender:
                 output_sink.write(line)
                 output_sink.flush()
 
-    def file(self):
-        return self._input
+##############################################################################
+# process-based
 
 def make_output_bridge(destination, mode='w'):
     """Create a bridge, returning the write file for the bridge."""
@@ -116,9 +118,6 @@ def child_output(source_fh, dest_fh, binary):
 
 def main(argv):
     """Send command output to a bridged file."""
-    global me; me = os.path.basename(argv[0]) # name of this program
-    global mydir; mydir = os.path.dirname(os.path.abspath(__file__))
-    ################################
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("-o","--output", required=True, default=None,
                         dest='output', 
@@ -126,19 +125,13 @@ def main(argv):
     parser.add_argument("-b","--binary",
                         dest='binary', action="store_true",
                         help="open the bridge as a binary file.")
-    parser.add_argument("-v","--verbose",
-                        dest='verbose', action="store_true",
-                        help="run verbosely")
     parser.add_argument("command",
                         metavar="COMMAND", nargs="+",
                         help="command to execute")
     args = parser.parse_args(args=argv[1:])  # will exit on parse error
 
-    # with make_output_bridge(args.output, mode=('w' + ('b' if args.binary else ''))) as bridge:
-    #     completion = subprocess.run(args.command, stdout=bridge)
-
     with ForeignFileAppender(args.output, args.binary) as bridge:
-        completion = subprocess.run(args.command, stdout=bridge.file())
+        completion = subprocess.run(args.command, stdout=bridge.intake)
 
     return completion.returncode
 
